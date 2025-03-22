@@ -7,11 +7,48 @@ float noise2d(float x, float z) {
     return (float)rand() / RAND_MAX;
 }
 
+// Generate random float between 0 and 1
+float random_float() {
+    return (float)rand() / RAND_MAX;
+}
+
+// Interpolate between two colors based on time
+Color interpolate_colors(Color c1, Color c2, float t) {
+    Color result;
+    result.r = c1.r + (c2.r - c1.r) * t;
+    result.g = c1.g + (c2.g - c1.g) * t;
+    result.b = c1.b + (c2.b - c1.b) * t;
+    return result;
+}
+
+// Initialize stars with random positions
+void init_stars(Star stars[]) {
+    for (int i = 0; i < NUM_STARS; i++) {
+        // Generate random position in world space
+        float x = (random_float() - 0.5f) * 200.0f;  // -100 to 100
+        float y = random_float() * 100.0f;           // 0 to 100
+        float z = (random_float() - 0.5f) * 200.0f;  // -100 to 100
+        
+        stars[i].position.x = x;
+        stars[i].position.y = y;
+        stars[i].position.z = z;
+        stars[i].brightness = 0.5f + random_float() * 0.5f;  // Random brightness
+    }
+}
+
 void init_voxel_world(VoxelWorld* world) {
     world->player_chunk_x = VIEW_DISTANCE;
     world->player_chunk_z = VIEW_DISTANCE;
     world->world_offset_x = 0;
     world->world_offset_z = 0;
+    
+    // Initialize skybox
+    world->skybox.time_of_day = 0.0f;  // Start at dawn
+    world->skybox.day_cycle_speed = 1.0f / DAY_LENGTH;
+    world->skybox.sun_angle = 0.0f;
+    
+    // Initialize stars
+    init_stars(world->skybox.stars);
     
     // Initialize all chunks as unloaded
     for (int x = 0; x < CHUNK_COUNT; x++) {
@@ -29,6 +66,168 @@ void init_voxel_world(VoxelWorld* world) {
             world->chunks[x][z].is_loaded = true;
         }
     }
+}
+
+void update_skybox(VoxelWorld* world, float delta_time) {
+    // Update time of day
+    world->skybox.time_of_day += world->skybox.day_cycle_speed * delta_time;
+    if (world->skybox.time_of_day >= 1.0f) {
+        world->skybox.time_of_day -= 1.0f;
+    }
+    
+    // Update sun angle (0 to 2π)
+    world->skybox.sun_angle = world->skybox.time_of_day * 2.0f * M_PI;
+    
+    // Define colors for different times of day
+    Color dawn = {0.7f, 0.5f, 0.3f};     // Orange-red
+    Color day = {0.4f, 0.6f, 1.0f};      // Bright blue
+    Color dusk = {0.7f, 0.5f, 0.3f};     // Orange-red
+    Color night = {0.02f, 0.02f, 0.05f}; // Very dark blue-black
+    
+    // Interpolate between colors based on time of day
+    float t = world->skybox.time_of_day;
+    if (t < 0.25f) {
+        world->skybox.sky_color = interpolate_colors(dawn, day, t * 4.0f);
+    } else if (t < 0.75f) {
+        world->skybox.sky_color = interpolate_colors(day, dusk, (t - 0.25f) * 2.0f);
+    } else {
+        world->skybox.sky_color = interpolate_colors(dusk, night, (t - 0.75f) * 4.0f);
+    }
+    
+    // Update fog color to match sky color but slightly darker
+    world->skybox.fog_color.r = world->skybox.sky_color.r * 0.8f;
+    world->skybox.fog_color.g = world->skybox.sky_color.g * 0.8f;
+    world->skybox.fog_color.b = world->skybox.sky_color.b * 0.8f;
+}
+
+void render_skybox(VoxelWorld* world) {
+    // Save current matrix
+    glPushMatrix();
+    
+    // Reset the modelview matrix to identity
+    glLoadIdentity();
+    
+    // Disable depth testing and lighting for skybox
+    glDisable(GL_DEPTH_TEST);
+    glDisable(GL_LIGHTING);
+    
+    // Set sky color
+    glClearColor(world->skybox.sky_color.r,
+                 world->skybox.sky_color.g,
+                 world->skybox.sky_color.b,
+                 1.0f);
+    
+    // Set fog color
+    glFogfv(GL_FOG_COLOR, (float*)&world->skybox.fog_color);
+    
+    // Draw skybox cube
+    float size = 100.0f;  // Size of the skybox cube
+    
+    glBegin(GL_QUADS);
+    
+    // Front face
+    glColor3f(world->skybox.sky_color.r * 0.8f,
+              world->skybox.sky_color.g * 0.8f,
+              world->skybox.sky_color.b * 0.8f);
+    glVertex3f(-size, -size, size);
+    glVertex3f(size, -size, size);
+    glVertex3f(size, size, size);
+    glVertex3f(-size, size, size);
+    
+    // Back face
+    glColor3f(world->skybox.sky_color.r * 0.8f,
+              world->skybox.sky_color.g * 0.8f,
+              world->skybox.sky_color.b * 0.8f);
+    glVertex3f(-size, -size, -size);
+    glVertex3f(-size, size, -size);
+    glVertex3f(size, size, -size);
+    glVertex3f(size, -size, -size);
+    
+    // Top face
+    glColor3f(world->skybox.sky_color.r,
+              world->skybox.sky_color.g,
+              world->skybox.sky_color.b);
+    glVertex3f(-size, size, -size);
+    glVertex3f(-size, size, size);
+    glVertex3f(size, size, size);
+    glVertex3f(size, size, -size);
+    
+    // Bottom face
+    glColor3f(world->skybox.sky_color.r * 0.6f,
+              world->skybox.sky_color.g * 0.6f,
+              world->skybox.sky_color.b * 0.6f);
+    glVertex3f(-size, -size, -size);
+    glVertex3f(size, -size, -size);
+    glVertex3f(size, -size, size);
+    glVertex3f(-size, -size, size);
+    
+    // Right face
+    glColor3f(world->skybox.sky_color.r * 0.9f,
+              world->skybox.sky_color.g * 0.9f,
+              world->skybox.sky_color.b * 0.9f);
+    glVertex3f(size, -size, -size);
+    glVertex3f(size, size, -size);
+    glVertex3f(size, size, size);
+    glVertex3f(size, -size, size);
+    
+    // Left face
+    glColor3f(world->skybox.sky_color.r * 0.9f,
+              world->skybox.sky_color.g * 0.9f,
+              world->skybox.sky_color.b * 0.9f);
+    glVertex3f(-size, -size, -size);
+    glVertex3f(-size, -size, size);
+    glVertex3f(-size, size, size);
+    glVertex3f(-size, size, -size);
+    
+    glEnd();
+    
+    // Draw sun during day
+    if (world->skybox.time_of_day >= 0.25f && world->skybox.time_of_day <= 0.75f) {
+        float sun_height = sin(world->skybox.sun_angle) * 50.0f;
+        float sun_x = cos(world->skybox.sun_angle) * 50.0f;
+        
+        glPushMatrix();
+        glTranslatef(sun_x, sun_height, -50.0f);
+        
+        // Draw sun
+        glColor3f(1.0f, 1.0f, 0.8f);
+        glBegin(GL_TRIANGLE_FAN);
+        glVertex3f(0.0f, 0.0f, 0.0f);
+        for (int i = 0; i <= 32; i++) {
+            float angle = i * 2.0f * M_PI / 32.0f;
+            glVertex3f(cos(angle) * 5.0f, sin(angle) * 5.0f, 0.0f);
+        }
+        glEnd();
+        
+        glPopMatrix();
+    }
+    
+    // Draw stars during night (with the skybox)
+    if (world->skybox.time_of_day >= 0.75f || world->skybox.time_of_day <= 0.25f) {
+        glBegin(GL_POINTS);
+        for (int i = 0; i < NUM_STARS; i++) {
+            float brightness = world->skybox.stars[i].brightness;
+            if (world->skybox.time_of_day >= 0.75f) {
+                // Fade in stars during night
+                brightness *= (world->skybox.time_of_day - 0.75f) * 4.0f;
+            } else {
+                // Fade out stars during dawn
+                brightness *= (0.25f - world->skybox.time_of_day) * 4.0f;
+            }
+            glColor3f(brightness, brightness, brightness);
+            glVertex3f(world->skybox.stars[i].position.x,
+                      world->skybox.stars[i].position.y,
+                      world->skybox.stars[i].position.z);
+        }
+        glEnd();
+    }
+    
+    // Restore matrix
+    glPopMatrix();
+    
+    // Re-enable depth testing and lighting
+    glEnable(GL_DEPTH_TEST);
+    glEnable(GL_LIGHTING);
 }
 
 void update_chunks(VoxelWorld* world, float player_x, float player_z) {

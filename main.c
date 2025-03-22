@@ -204,8 +204,14 @@ int main(int argc, char* argv[]) {
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
         glLoadIdentity();
 
+        // Update skybox colors (before camera setup)
+        update_skybox(&world, 0.016f);  // Assuming 60 FPS
+        
         // Setup camera
         setup_camera(&camera);
+
+        // Render skybox and stars (before blocks)
+        render_skybox(&world);
 
         // Render world
         for (int x = 0; x < CHUNK_COUNT; x++) {
